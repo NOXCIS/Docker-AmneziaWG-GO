@@ -8,5 +8,5 @@ RUN cd /go/amneziawg-tools/src && make
 RUN cd /go/amneziawg-go && \
     go get -u ./... && \
     go mod tidy && \
-    make && \
-    echo "DONE AmneziaWG"
+    make 
+RUN echo "DONE AmneziaWG"
