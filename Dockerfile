@@ -1,23 +1,19 @@
-# pluggables: Tor Transport Plugin Binary Builder
+# awg: BUILD AmneziaWG (Obfuscated Wireguard) 
 FROM  golang:alpine3.20 AS compiler
-WORKDIR /
-RUN apk add -U --no-cache bash make git
-RUN git clone --depth=1 https://gitlab.torproject.org/tpo/anti-censorship/pluggable-transports/lyrebird.git \
-    && cd lyrebird \
-    && make build \
-    && echo "DONE LYREBIRD AKA OBFS4" 
-RUN git clone --depth=1 https://git.torproject.org/pluggable-transports/snowflake.git \
-    && cd snowflake/client \
-    && CGO_ENABLED=0 go build -a -installsuffix cgo \
-    && echo "DONE SNOWFLAKE"
-RUN git clone --depth=1 https://gitlab.torproject.org/tpo/anti-censorship/pluggable-transports/webtunnel.git \
-    && cd webtunnel/main/client \
-    && CGO_ENABLED=0 go build -a -installsuffix cgo \
-    && echo "DONE WEBTUNNEL" 
-RUN chmod +x /lyrebird/lyrebird /webtunnel/main/client/client /snowflake/client/client
-
+WORKDIR /go
+RUN apk update && apk add --no-cache git make bash build-base linux-headers
+RUN git clone --depth=1 https://github.com/amnezia-vpn/amneziawg-tools.git && \
+    git clone --depth=1 https://github.com/amnezia-vpn/amneziawg-go.git
+RUN cd /go/amneziawg-tools/src && make
+RUN cd /go/amneziawg-go && \
+    go get -u ./... && \
+    go mod tidy && \
+    make && \
+    chmod +x /go/amneziawg-go/amneziawg-go /go/amneziawg-tools/src/wg /go/amneziawg-tools/src/wg-quick/linux.bash
+RUN echo "DONE AmneziaWG"
 
 FROM scratch
-COPY --from=compiler /lyrebird/lyrebird /lyrebird
-COPY --from=compiler /webtunnel/main/client/client /webtunnel
-COPY --from=compiler /snowflake/client/client /snowflake
+COPY --from=compiler  /go/amneziawg-go/amneziawg-go /amneziawg-go
+COPY --from=compiler  /go/amneziawg-tools/src/wg /awg
+COPY --from=compiler  /go/amneziawg-tools/src/wg-quick/linux.bash /awg-quick
+
