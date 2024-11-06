@@ -1,4 +1,4 @@
-# awg: BUILD AmneziaWG (Obfuscated Wireguard) 
+# compiler: BUILD AmneziaWG (Obfuscated Wireguard) 
 FROM  golang:alpine3.20 AS compiler
 WORKDIR /go
 RUN apk update && apk add --no-cache git make bash build-base linux-headers
