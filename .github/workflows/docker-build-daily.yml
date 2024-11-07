@@ -1,4 +1,4 @@
-name: Build and Push Docker Dev Image (Daily)
+name: Build and Push AmneziaWG Binary Docker Image (Daily)
 
 on:
   schedule:
