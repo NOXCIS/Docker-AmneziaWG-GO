@@ -1,5 +1,4 @@
 name: Build and Push AmneziaWG Binary Docker Image (Daily)
-
 on:
   schedule:
     - cron: "0 23 * * *"  # Daily at 11 PM (UTC)
@@ -8,21 +7,58 @@ on:
       trigger-build:
         description: "Trigger a manual build and push"
         default: "true"
+      force-build:
+        description: "Force build even if no changes detected"
+        default: "false"
+        type: boolean
 
 jobs:
   build_and_push_multiarch:
     runs-on: ubuntu-22.04
     timeout-minutes: 42
-
     steps:
-      # Checkout
+      # Checkout with fetch-depth for comparison
       - name: Checkout code from target branch
         uses: actions/checkout@v4
         with:
           ref: 'refs/heads/main'
+          fetch-depth: 2  # Fetch last 2 commits for comparison
+
+      # Check for changes since last build
+      - name: Check for changes
+        id: check_changes
+        run: |
+          # Check if there were changes in the last 24 hours
+          LAST_COMMIT_TIME=$(git log -1 --format=%ct)
+          CURRENT_TIME=$(date +%s)
+          TIME_DIFF=$((CURRENT_TIME - LAST_COMMIT_TIME))
+          HOURS_SINCE_COMMIT=$((TIME_DIFF / 3600))
+          
+          if [ $HOURS_SINCE_COMMIT -lt 24 ]; then
+            echo "changed=true" >> $GITHUB_OUTPUT
+            echo "✅ Changes detected in last 24 hours"
+          else
+            echo "changed=false" >> $GITHUB_OUTPUT
+            echo "⏭️ No changes in last 24 hours"
+          fi
+
+      # Skip build if no changes (unless forced or manual trigger)
+      - name: Decide whether to build
+        id: should_build
+        run: |
+          if [ "${{ steps.check_changes.outputs.changed }}" == "true" ] || \
+             [ "${{ github.event_name }}" == "workflow_dispatch" ] || \
+             [ "${{ inputs.force-build }}" == "true" ]; then
+            echo "build=true" >> $GITHUB_OUTPUT
+            echo "🚀 Proceeding with build"
+          else
+            echo "build=false" >> $GITHUB_OUTPUT
+            echo "⏭️ Skipping build - no changes detected"
+          fi
 
       # Docker Hub login
       - name: Log in to Docker Hub
+        if: steps.should_build.outputs.build == 'true'
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -30,6 +66,7 @@ jobs:
 
       # Buildx
       - name: Set up Docker Buildx (Multi-Arch Builder)
+        if: steps.should_build.outputs.build == 'true'
         uses: docker/setup-buildx-action@v3
         with:
           driver-opts: image=moby/buildkit:master
@@ -37,27 +74,38 @@ jobs:
 
       # QEMU
       - name: Set up QEMU
+        if: steps.should_build.outputs.build == 'true'
         uses: docker/setup-qemu-action@v3
         with:
           platforms: linux/amd64,linux/arm64,linux/arm/v6,linux/arm/v7
 
       # Build & Push with HYBRID cache
       - name: Build and Push AmneziaWG Binary Docker Image (Multi-Arch)
+        if: steps.should_build.outputs.build == 'true'
         uses: docker/build-push-action@v6
         with:
           context: .
           push: true
           tags: |
             noxcis/awg-bins:latest
+            noxcis/awg-bins:${{ github.sha }}
           platforms: linux/amd64,linux/arm64,linux/arm/v6,linux/arm/v7
-
-          # -------- Hybrid Cache Setup --------
-          # 1. Pull from GHA cache (fast) and fallback to registry cache
           cache-from: |
             type=gha
             type=registry,ref=noxcis/awg-bins:latest
-
-          # 2. Update both caches
           cache-to: |
             type=gha,mode=max
             type=inline
+
+      # Summary
+      - name: Job Summary
+        if: always()
+        run: |
+          if [ "${{ steps.should_build.outputs.build }}" == "true" ]; then
+            echo "✅ Build completed successfully" >> $GITHUB_STEP_SUMMARY
+            echo "- Image: noxcis/awg-bins:latest" >> $GITHUB_STEP_SUMMARY
+            echo "- Commit: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⏭️ Build skipped - no changes in last 24 hours" >> $GITHUB_STEP_SUMMARY
+            echo "- Use 'force-build' option to override" >> $GITHUB_STEP_SUMMARY
+          fi
